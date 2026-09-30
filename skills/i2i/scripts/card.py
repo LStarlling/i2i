@@ -39,8 +39,9 @@ def score(kind):
         return None
     avg = lambda k: sum(r[k] * r["题数"] for r in rows) / n
     if kind == "选择题":
-        return {"n": n, "hit": avg("命中率"), "base": max(avg("只选推荐项命中率"), avg("随机猜命中率")),
-                "label": "猜中真实选择", "base_name": "只选推荐"}
+        # 只展示更强的那个基线，名称必须跟着数字走
+        base, base_name = max((avg("只选推荐项命中率"), "只选推荐"), (avg("随机猜命中率"), "随机猜"))
+        return {"n": n, "hit": avg("命中率"), "base": base, "label": "猜中真实选择", "base_name": base_name}
     return {"n": n, "hit": avg("命中率"), "base": avg("一律猜多数类命中率"),
             "label": "预判是否打回 AI", "base_name": "一律猜" + rows[-1]["多数类"]}
 

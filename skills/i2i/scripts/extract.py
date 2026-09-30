@@ -173,6 +173,59 @@ def mine(path):
                    "kind": "said", "answer": head(t, 1500)}
 
 
+def chatgpt(conv):
+    """ChatGPT 导出：mapping 是消息树，从 current_node 沿 parent 回溯得到当前分支。"""
+    mapping = conv.get("mapping") or {}
+    node = conv.get("current_node")
+    chain = []
+    while node and node in mapping:
+        chain.append(mapping[node])
+        node = mapping[node].get("parent")
+    for n in reversed(chain):
+        m = n.get("message") or {}
+        role = (m.get("author") or {}).get("role")
+        parts = (m.get("content") or {}).get("parts") or []
+        text = "\n".join(x for x in parts if isinstance(x, str)).strip()
+        if role in ("user", "assistant") and text:
+            yield role, m.get("id") or n.get("id"), m.get("create_time"), text
+
+
+def claude_web(conv):
+    """Claude 导出：chat_messages 已按顺序排列，sender 为 human / assistant。"""
+    for m in conv.get("chat_messages") or []:
+        text = (m.get("text") or "").strip() or "\n".join(
+            x.get("text", "") for x in m.get("content") or [] if isinstance(x, dict) and x.get("type") == "text").strip()
+        role = {"human": "user", "assistant": "assistant"}.get(m.get("sender"))
+        if role and text:
+            yield role, m.get("uuid"), m.get("created_at"), text
+
+
+def ai_export(path):
+    """网页版 AI 对话的官方导出文件（conversations.json），自动识别 ChatGPT 或 Claude。"""
+    data = json.loads(Path(path).read_text(encoding="utf-8-sig"))
+    if not isinstance(data, list):
+        sys.exit("{}：不是对话数组，请提供导出包里的 conversations.json".format(path))
+    for conv in data:
+        if "mapping" in conv:
+            source, walk = "chatgpt", chatgpt(conv)
+        elif "chat_messages" in conv:
+            source, walk = "claude-web", claude_web(conv)
+        else:
+            continue
+        key = conv.get("id") or conv.get("uuid") or conv.get("conversation_id") or ""
+        title = (conv.get("title") or conv.get("name") or "")[:40]
+        last_ai = ""
+        for role, mid, ts, text in walk:
+            if role == "assistant":
+                last_ai = text
+                continue
+            if is_noise(text):
+                continue
+            ts = ts if isinstance(ts, str) else (time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(ts)) if ts else "")
+            yield reaction(source, key + "/" + str(mid), title, ts, last_ai, text)
+            last_ai = ""
+
+
 COLUMNS = {
     "sender": ("发送人", "发送者", "昵称", "sender", "Sender", "NickName", "talker"),
     "self": ("是否本人", "is_self", "IsSender"),
@@ -240,6 +293,7 @@ def main():
     ap.add_argument("--chat", nargs="+", help="聊天导出文件（CSV 或 JSON），一个文件对应一个聊天对象")
     ap.add_argument("--me", default="", help="你在聊天里的昵称（导出文件没有“是否本人”列时必填）")
     ap.add_argument("--to", default="", help="聊天对象：上级、同事、朋友、家人等")
+    ap.add_argument("--ai-export", nargs="+", help="网页版 AI 的导出文件 conversations.json（ChatGPT、Claude），可多个")
     ap.add_argument("--transcript", help="只处理这一份 Claude Code 对话记录（会话结束钩子用，追求快）")
     ap.add_argument("--rebuild", action="store_true",
                     help="按当前规则重新划分全部已存信号，并把全部训练信号重新放入待提炼分块（不删除任何数据）")
@@ -257,6 +311,7 @@ def main():
     sources = [claude_code([a.transcript])] if a.transcript else [claude_code(), codex()]
     sources += [mine(a.mine)] if a.mine else []
     sources += [chat(f, a.me, a.to) for f in a.chat or []]
+    sources += [ai_export(f) for f in a.ai_export or []]
     new = []
     for src in sources:
         for s in src:
