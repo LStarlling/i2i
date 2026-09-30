@@ -157,6 +157,8 @@ def main():
 
     pending = HOME / "pending"
     pending.mkdir(parents=True, exist_ok=True)
+    inbox = HOME / "inbox"
+    inbox.mkdir(exist_ok=True)
     store = HOME / "signals.jsonl"
     seen = set()
     if store.exists():
@@ -192,6 +194,7 @@ def main():
         "待提炼分块": sorted(p.name for p in pending.glob("*.jsonl")),
         "评测题（留出集）": sum(1 for l in open(store, encoding="utf-8")
                           if '"split": "test"' in l),
+        "收件箱待导入截图": sum(1 for p in inbox.iterdir() if p.is_file()),
     }, ensure_ascii=False, indent=2))
 
 
