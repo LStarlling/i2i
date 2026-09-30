@@ -28,7 +28,8 @@ HOME = Path(os.environ.get("I2I_HOME") or Path.home() / ".i2i")
 CLAUDE_DIR = Path(os.environ.get("CLAUDE_CONFIG_DIR", Path.home() / ".claude"))
 CODEX_DIR = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
 CHUNK = 120
-TEST_PERCENT = 50
+TEST_PERCENT = 50           # 选择题留作考题的比例
+REACTION_TEST_PERCENT = 20  # 对 AI 回复的反应留作打回题的比例
 
 SECRET = re.compile(
     r"(sk-[A-Za-z0-9_-]{16,}|ghp_[A-Za-z0-9]{20,}|xox[abp]-[A-Za-z0-9-]{10,}"
@@ -212,6 +213,13 @@ def chat(path, me, to):
         prev = ""
 
 
+def is_test(s):
+    bucket = int(s["id"], 16) % 100
+    if s["kind"] == "choice":
+        return bucket < TEST_PERCENT
+    return s["kind"] == "reaction" and bool(s.get("context")) and bucket < REACTION_TEST_PERCENT
+
+
 def main():
     ap = argparse.ArgumentParser(description="从本机 AI 对话记录抽取偏好信号")
     ap.add_argument("--mine", help="你本人发出的消息文本文件（消息之间空一行），用于学习表达风格")
@@ -237,7 +245,7 @@ def main():
             if s["id"] in seen:
                 continue
             seen.add(s["id"])
-            s["split"] = "test" if s["kind"] == "choice" and int(s["id"], 16) % 100 < TEST_PERCENT else "train"
+            s["split"] = "test" if is_test(s) else "train"
             new.append(s)
     new.sort(key=lambda s: s["ts"])
 
@@ -251,6 +259,7 @@ def main():
         fn = pending / "chunk_{}_{:03d}.jsonl".format(stamp, i // CHUNK)
         fn.write_text("".join(json.dumps(s, ensure_ascii=False) + "\n" for s in train[i:i + CHUNK]), encoding="utf-8")
 
+    tests = [json.loads(l) for l in open(store, encoding="utf-8") if '"split": "test"' in l]
     count = {}
     for s in new:
         k = s["source"] + "/" + s["kind"]
@@ -258,8 +267,8 @@ def main():
     print(json.dumps({
         "数据目录": str(HOME), "本次新增": count, "累计信号": len(seen),
         "待提炼分块": sorted(p.name for p in pending.glob("*.jsonl")),
-        "评测题（留出集）": sum(1 for l in open(store, encoding="utf-8")
-                          if '"split": "test"' in l),
+        "考题（留出集）": {"选择题": sum(1 for s in tests if s["kind"] == "choice"),
+                         "打回题": sum(1 for s in tests if s["kind"] == "reaction")},
         "收件箱待导入截图": sum(1 for p in inbox.iterdir() if p.is_file()),
     }, ensure_ascii=False, indent=2))
 

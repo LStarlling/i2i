@@ -27,17 +27,21 @@ def esc(s):
     return html.escape(str(s))
 
 
-def score():
+def score(kind):
     path = HOME / "eval" / "history.jsonl"
     rows = []
     if path.exists():
         rows = [json.loads(l) for l in open(path, encoding="utf-8") if l.strip()]
-    rows = [r for r in rows if not r.get("污染")]
+    rows = [r for r in rows if not r.get("污染") and r.get("类型", "选择题") == kind]
     n = sum(r["题数"] for r in rows)
     if not n:
         return None
     avg = lambda k: sum(r[k] * r["题数"] for r in rows) / n
-    return {"n": n, "hit": avg("命中率"), "rec": avg("只选推荐项命中率"), "rand": avg("随机猜命中率")}
+    if kind == "选择题":
+        return {"n": n, "hit": avg("命中率"), "base": max(avg("只选推荐项命中率"), avg("随机猜命中率")),
+                "label": "猜中真实选择", "base_name": "只选推荐"}
+    return {"n": n, "hit": avg("命中率"), "base": avg("一律猜多数类命中率"),
+            "label": "预判是否打回 AI", "base_name": "一律猜" + rows[-1]["多数类"]}
 
 
 def stats():
@@ -64,13 +68,13 @@ def render(c):
                     for r in c.get("rules", [])[:3])
     words = "".join("<span>{}</span>".format(esc(w)) for w in c.get("words", [])[:5])
 
-    s = score()
-    if s:
-        foot = ('<div><p class="label">猜中我的真实选择</p><p class="score">{:.0f}<small>%</small></p>'
-                '<p class="cmp">只选 AI 推荐 {:.0f}%，随机猜 {:.0f}%<br>基于 {} 道没参与学习的题</p></div>').format(
-            s["hit"] * 100, s["rec"] * 100, s["rand"] * 100, s["n"])
-    else:
-        foot = '<div><p class="label">猜中我的真实选择</p><p class="score">?</p><p class="cmp">还没校准</p></div>'
+    metrics = [m for m in (score("选择题"), score("打回题")) if m]
+    foot = "".join(
+        '<div class="metric"><p class="label">{}</p><p class="score">{:.0f}<small>%</small></p>'
+        '<p class="cmp">{} {:.0f}%<br>{} 道没学过的题</p></div>'.format(
+            m["label"], m["hit"] * 100, m["base_name"], m["base"] * 100, m["n"]) for m in metrics)
+    if not metrics:
+        foot = '<div class="metric"><p class="label">猜中真实选择</p><p class="score">?</p><p class="cmp">还没校准</p></div>'
 
     return TEMPLATE.format(
         persona=esc(c["persona"]), tagline=esc(c.get("tagline", "")), signals=signals, formal=formal,
@@ -109,6 +113,7 @@ h1 {{ font-size:46px; line-height:1.15; font-weight:800; margin-top:34px; }}
 .words {{ margin-top:26px; display:flex; flex-wrap:wrap; gap:8px; }}
 .words span {{ font-size:13px; padding:4px 12px; border:1px solid var(--line); border-radius:999px; }}
 .foot {{ margin-top:auto; display:flex; justify-content:space-between; align-items:flex-end; border-top:1px solid var(--line); padding-top:18px; }}
+.metrics {{ display:flex; gap:28px; }}
 .label {{ font-size:12px; color:var(--sub); }}
 .score {{ font-size:44px; font-weight:700; line-height:1.1; color:var(--accent); }}
 .score small {{ font-size:20px; margin-left:2px; }}
@@ -126,7 +131,7 @@ h1 {{ font-size:46px; line-height:1.15; font-weight:800; margin-top:34px; }}
   <section class="axes">{axes}</section>
   <ol class="rules">{rules}</ol>
   <div class="words">{words}</div>
-  <footer class="foot">{foot}<div class="repo"><b>测测你的分身</b>{repo}</div></footer>
+  <footer class="foot"><div class="metrics">{foot}</div><div class="repo"><b>测测你的分身</b>{repo}</div></footer>
 </article>
 <p class="hint">截图这张卡片即可分享</p>
 <script>
