@@ -1,0 +1,11 @@
+{
+  "name": "i2i",
+  "owner": { "name": "I2I contributors" },
+  "plugins": [
+    {
+      "name": "i2i",
+      "source": "./",
+      "description": "本地数字分身：从你和 AI 的对话里学会你的偏好，替你给出带把握度的决策和回复话术"
+    }
+  ]
+}

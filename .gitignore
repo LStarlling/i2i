@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+.i2i/
+.playwright-mcp/
