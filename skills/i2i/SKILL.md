@@ -182,18 +182,9 @@ description: 用户的本地数字分身。从用户与 AI 的历史对话中学
 4. **首次同步**先把 export.md 的内容和冲突清单展示给用户，确认后再运行 `scripts/export.py write --target <文件>`，并把路径记进 profile.md 头部的"memory 文件"。之后档案更新时直接同步，只告知用户一句。
 5. 用户要求撤销时运行 `scripts/export.py remove --target <文件>`，并清空 profile.md 里的记录。
 
-## 边界## 十、同步到 memory 文件
+## 版本
 
-把分身里把握度高的规则写进用户的 memory 文件（CLAUDE.md、AGENTS.md 等），让所有 agent 直接受益。只维护文件里 I2I 标记之间的区块，用户手写的内容一律不动。
-
-1. 目标文件：profile.md 头部的"memory 文件"一行有记录就用它；没有时运行 `scripts/export.py targets`，默认推荐当前宿主 agent 的全局文件，请用户确认路径（可以多个）。
-2. 读目标文件里用户手写的部分，再从 profile.md 挑规则，逐条判断：
-   - 把握度为"高"才导出；"待验证"和生活取舍不导出。
-   - 用户手写内容已经覆盖的，不导出。
-   - 和手写内容**冲突**的，不导出，单独列给用户：这是"用户说的"和"用户做的"不一致的地方，请用户决定改档案还是改手写规则。
-3. 把选中的规则改写成给 agent 的指令（祈使句，一条一行，不带编号、证据和把握度），写入 `~/.i2i/export.md`，控制在 20 条以内，最有区分度的放前面。
-4. **首次同步**先把 export.md 的内容和冲突清单展示给用户，确认后再运行 `scripts/export.py write --target <文件>`，并把路径记进 profile.md 头部的"memory 文件"。之后档案更新时直接同步，只告知用户一句。
-5. 用户要求撤销时运行 `scripts/export.py remove --target <文件>`，并清空 profile.md 里的记录。
+`scripts/extract.py` 的摘要里带有当前版本号。用户要求的功能在本文件里找不到对应模式时，不要自行发挥：告诉用户可能是插件版本旧，给出更新方式（Claude Code：`/plugin marketplace update i2i` 然后 `/plugin update i2i@i2i`；手动复制安装的：重新复制 `skills/i2i` 目录），更新后在新会话里再试。
 
 ## 边界
 

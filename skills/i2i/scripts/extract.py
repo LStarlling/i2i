@@ -283,6 +283,7 @@ def main():
         k = s["source"] + "/" + s["kind"]
         count[k] = count.get(k, 0) + 1
     print(json.dumps({
+        "版本": (Path(__file__).resolve().parent.parent / "VERSION").read_text().strip(),
         "数据目录": str(HOME), "本次新增": count, "累计信号": len(seen),
         "待提炼分块": sorted(p.name for p in pending.glob("*.jsonl")),
         "考题（留出集）": {"选择题": sum(1 for s in tests if s["kind"] == "choice"),
