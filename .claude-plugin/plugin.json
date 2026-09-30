@@ -1,6 +1,6 @@
 {
   "name": "i2i",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "本地数字分身：从你和 AI 的对话里学会你的偏好，替你给出带把握度的决策和回复话术",
   "license": "MIT"
 }

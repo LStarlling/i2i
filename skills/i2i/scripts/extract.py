@@ -5,8 +5,12 @@
   choice   你在结构化选择题里做出的选择（有标签，可客观评测）
   reaction 你对 AI 上一条回复的反应（纠正、否决、追加要求）
   said     你本人发出的消息原文（只用于学习表达风格）
+
+导入聊天内容的那条用户消息里夹着别人的话：agent 随后会调用 log.py said，
+抽取时据此把这条消息丢掉，不当作 reaction。
 """
 import argparse
+import csv
 import glob
 import hashlib
 import json
@@ -18,6 +22,7 @@ from pathlib import Path
 
 # Windows 控制台默认编码打印中文会报错；log.py、score.py 导入本模块时同样生效
 sys.stdout.reconfigure(encoding="utf-8")
+sys.stderr.reconfigure(encoding="utf-8")
 
 HOME = Path(os.environ.get("I2I_HOME") or Path.home() / ".i2i")
 CLAUDE_DIR = Path(os.environ.get("CLAUDE_CONFIG_DIR", Path.home() / ".claude"))
@@ -82,9 +87,12 @@ def choice(source, key, project, ts, q, answer, note):
     }
 
 
+IMPORT_MARK = "log.py said"
+
+
 def claude_code():
     for f in glob.glob(str(CLAUDE_DIR / "projects" / "*" / "*.jsonl")):
-        last_ai = ""
+        last_ai, held = "", None
         for line in open(f, encoding="utf-8", errors="ignore"):
             try:
                 d = json.loads(line)
@@ -99,6 +107,10 @@ def claude_code():
                 for t in texts(content):
                     if t.strip():
                         last_ai = t
+                if isinstance(content, list) and any(
+                        x.get("type") == "tool_use" and IMPORT_MARK in json.dumps(x.get("input"), ensure_ascii=False)
+                        for x in content if isinstance(x, dict)):
+                    held = None
             elif d.get("type") == "user":
                 r = d.get("toolUseResult")
                 if isinstance(r, dict) and isinstance(r.get("answers"), dict) and r.get("questions"):
@@ -114,13 +126,17 @@ def claude_code():
                 t = "\n".join(texts(content)).strip()
                 if is_noise(t):
                     continue
-                yield reaction("claude-code", d.get("uuid"), project, ts, last_ai, t)
+                if held:
+                    yield held
+                held = reaction("claude-code", d.get("uuid"), project, ts, last_ai, t)
                 last_ai = ""
+        if held:
+            yield held
 
 
 def codex():
     for f in glob.glob(str(CODEX_DIR / "sessions" / "**" / "*.jsonl"), recursive=True):
-        last_ai, project = "", ""
+        last_ai, project, held = "", "", None
         for line in open(f, encoding="utf-8", errors="ignore"):
             try:
                 d = json.loads(line)
@@ -129,6 +145,8 @@ def codex():
             p = d.get("payload") or {}
             if d.get("type") == "session_meta":
                 project = Path(p.get("cwd") or "").name
+            if d.get("type") == "response_item" and p.get("type") in ("function_call", "custom_tool_call")                     and IMPORT_MARK in json.dumps(p, ensure_ascii=False):
+                held = None
             if d.get("type") != "event_msg":
                 continue
             if p.get("type") == "agent_message":
@@ -137,8 +155,12 @@ def codex():
                 t = (p.get("message") or "").strip()
                 if is_noise(t):
                     continue
-                yield reaction("codex", f + d.get("timestamp", ""), project, d.get("timestamp", ""), last_ai, t)
+                if held:
+                    yield held
+                held = reaction("codex", f + d.get("timestamp", ""), project, d.get("timestamp", ""), last_ai, t)
                 last_ai = ""
+        if held:
+            yield held
 
 
 def mine(path):
@@ -150,9 +172,52 @@ def mine(path):
                    "kind": "said", "answer": head(t, 1500)}
 
 
+COLUMNS = {
+    "sender": ("发送人", "发送者", "昵称", "sender", "Sender", "NickName", "talker"),
+    "self": ("是否本人", "is_self", "IsSender"),
+    "content": ("内容", "消息内容", "content", "StrContent", "message", "text"),
+    "time": ("时间", "time", "StrTime", "CreateTime", "timestamp"),
+}
+PLACEHOLDER = re.compile(r"^\[[^\]]{1,8}\]$")  # [图片] [表情] 这类非文字消息
+
+
+def chat(path, me, to):
+    """通用聊天导出文件（CSV 或 JSON 数组）。只保留本人消息，对方上一句压缩为情境。"""
+    p = Path(path)
+    if p.suffix.lower() == ".json":
+        rows = json.loads(p.read_text(encoding="utf-8-sig"))
+    else:
+        rows = list(csv.DictReader(open(p, encoding="utf-8-sig", newline="")))
+    if not rows:
+        return
+    col = {k: next((c for c in names if c in rows[0]), None) for k, names in COLUMNS.items()}
+    if not col["content"] or not (col["self"] or (col["sender"] and me)):
+        sys.exit("无法识别 {} 的列：需要内容列，以及“是否本人”列或“发送人”列加 --me。现有列：{}".format(
+            p.name, ", ".join(rows[0].keys())))
+    prev = ""
+    for r in rows:
+        text = str(r.get(col["content"]) or "").strip()
+        if not text or PLACEHOLDER.match(text) or text.startswith("<"):
+            continue
+        if col["self"]:
+            is_me = str(r.get(col["self"])).strip().lower() in ("1", "true", "是", "yes")
+        else:
+            is_me = str(r.get(col["sender"]) or "").strip() == me
+        if not is_me:
+            prev = text
+            continue
+        ts = str(r.get(col["time"]) or "") if col["time"] else ""
+        yield {"id": sig_id("chat", ts, text), "source": "chat", "project": "", "ts": ts, "kind": "said",
+               "to": to, "context": tail(prev, 200), "answer": head(text, 1500)}
+        prev = ""
+
+
 def main():
     ap = argparse.ArgumentParser(description="从本机 AI 对话记录抽取偏好信号")
     ap.add_argument("--mine", help="你本人发出的消息文本文件（消息之间空一行），用于学习表达风格")
+    ap.add_argument("--chat", nargs="+", help="聊天导出文件（CSV 或 JSON），一个文件对应一个聊天对象")
+    ap.add_argument("--me", default="", help="你在聊天里的昵称（导出文件没有“是否本人”列时必填）")
+    ap.add_argument("--to", default="", help="聊天对象：上级、同事、朋友、家人等")
     a = ap.parse_args()
 
     pending = HOME / "pending"
@@ -165,6 +230,7 @@ def main():
         seen = {json.loads(l)["id"] for l in open(store, encoding="utf-8") if l.strip()}
 
     sources = [claude_code(), codex()] + ([mine(a.mine)] if a.mine else [])
+    sources += [chat(f, a.me, a.to) for f in a.chat or []]
     new = []
     for src in sources:
         for s in src:
