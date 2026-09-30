@@ -1,0 +1,39 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "IN=$(cat); PY=python3; \"$PY\" -c \"import sys\" >/dev/null 2>&1 || PY=python; printf '%s' \"$IN\" | \"$PY\" \"${CLAUDE_PLUGIN_ROOT}/hooks/ask_gate.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "PY=python3; \"$PY\" -c \"import sys\" >/dev/null 2>&1 || PY=python; \"$PY\" \"${CLAUDE_PLUGIN_ROOT}/hooks/session_start.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "IN=$(cat); PY=python3; \"$PY\" -c \"import sys\" >/dev/null 2>&1 || PY=python; printf '%s' \"$IN\" | \"$PY\" \"${CLAUDE_PLUGIN_ROOT}/hooks/session_end.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

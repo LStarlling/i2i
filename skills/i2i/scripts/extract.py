@@ -91,8 +91,8 @@ def choice(source, key, project, ts, q, answer, note):
 IMPORT_MARK = "log.py said"
 
 
-def claude_code():
-    for f in glob.glob(str(CLAUDE_DIR / "projects" / "*" / "*.jsonl")):
+def claude_code(files=None):
+    for f in files or glob.glob(str(CLAUDE_DIR / "projects" / "*" / "*.jsonl")):
         last_ai, held = "", None
         for line in open(f, encoding="utf-8", errors="ignore"):
             try:
@@ -240,6 +240,7 @@ def main():
     ap.add_argument("--chat", nargs="+", help="聊天导出文件（CSV 或 JSON），一个文件对应一个聊天对象")
     ap.add_argument("--me", default="", help="你在聊天里的昵称（导出文件没有“是否本人”列时必填）")
     ap.add_argument("--to", default="", help="聊天对象：上级、同事、朋友、家人等")
+    ap.add_argument("--transcript", help="只处理这一份 Claude Code 对话记录（会话结束钩子用，追求快）")
     ap.add_argument("--rebuild", action="store_true",
                     help="按当前规则重新划分全部已存信号，并把全部训练信号重新放入待提炼分块（不删除任何数据）")
     a = ap.parse_args()
@@ -253,7 +254,8 @@ def main():
     if store.exists():
         seen = {json.loads(l)["id"] for l in open(store, encoding="utf-8") if l.strip()}
 
-    sources = [claude_code(), codex()] + ([mine(a.mine)] if a.mine else [])
+    sources = [claude_code([a.transcript])] if a.transcript else [claude_code(), codex()]
+    sources += [mine(a.mine)] if a.mine else []
     sources += [chat(f, a.me, a.to) for f in a.chat or []]
     new = []
     for src in sources:
