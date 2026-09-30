@@ -220,12 +220,28 @@ def is_test(s):
     return s["kind"] == "reaction" and bool(s.get("context")) and bucket < REACTION_TEST_PERCENT
 
 
+def rebuild(store, pending):
+    """升级后可选：按当前规则重新划分考题。评过分的考题已经用完，改为训练数据。"""
+    used_file = HOME / "eval" / "used.txt"
+    used = set(used_file.read_text(encoding="utf-8").split()) if used_file.exists() else set()
+    rows = [json.loads(l) for l in open(store, encoding="utf-8") if l.strip()]
+    for s in rows:
+        s["split"] = "test" if is_test(s) and s["id"] not in used else "train"
+    rows.sort(key=lambda s: s.get("ts", ""))
+    store.write_text("".join(json.dumps(s, ensure_ascii=False) + "\n" for s in rows), encoding="utf-8")
+    for f in pending.glob("*.jsonl"):
+        f.unlink()
+    return [s for s in rows if s["split"] == "train"]
+
+
 def main():
     ap = argparse.ArgumentParser(description="从本机 AI 对话记录抽取偏好信号")
     ap.add_argument("--mine", help="你本人发出的消息文本文件（消息之间空一行），用于学习表达风格")
     ap.add_argument("--chat", nargs="+", help="聊天导出文件（CSV 或 JSON），一个文件对应一个聊天对象")
     ap.add_argument("--me", default="", help="你在聊天里的昵称（导出文件没有“是否本人”列时必填）")
     ap.add_argument("--to", default="", help="聊天对象：上级、同事、朋友、家人等")
+    ap.add_argument("--rebuild", action="store_true",
+                    help="按当前规则重新划分全部已存信号，并把全部训练信号重新放入待提炼分块（不删除任何数据）")
     a = ap.parse_args()
 
     pending = HOME / "pending"
@@ -254,6 +270,8 @@ def main():
             fp.write(json.dumps(s, ensure_ascii=False) + "\n")
 
     train = [s for s in new if s["split"] == "train"]
+    if a.rebuild:
+        train = rebuild(store, pending)
     stamp = time.strftime("%Y%m%d%H%M%S")
     for i in range(0, len(train), CHUNK):
         fn = pending / "chunk_{}_{:03d}.jsonl".format(stamp, i // CHUNK)

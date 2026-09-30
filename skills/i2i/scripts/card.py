@@ -21,6 +21,7 @@ import sys
 from extract import HOME
 
 REPO = "github.com/LStarlling/i2i"
+MIN_QUESTIONS = 10  # 考题少于这个数时分数波动太大，卡片上不显示
 
 
 def esc(s):
@@ -68,13 +69,13 @@ def render(c):
                     for r in c.get("rules", [])[:3])
     words = "".join("<span>{}</span>".format(esc(w)) for w in c.get("words", [])[:5])
 
-    metrics = [m for m in (score("选择题"), score("打回题")) if m]
+    metrics = [m for m in (score("选择题"), score("打回题")) if m and m["n"] >= MIN_QUESTIONS]
     foot = "".join(
         '<div class="metric"><p class="label">{}</p><p class="score">{:.0f}<small>%</small></p>'
         '<p class="cmp">{} {:.0f}%<br>{} 道没学过的题</p></div>'.format(
             m["label"], m["hit"] * 100, m["base_name"], m["base"] * 100, m["n"]) for m in metrics)
     if not metrics:
-        foot = '<div class="metric"><p class="label">猜中真实选择</p><p class="score">?</p><p class="cmp">还没校准</p></div>'
+        foot = '<div class="metric"><p class="label">猜中真实选择</p><p class="score">?</p><p class="cmp">考题不足 {} 道<br>暂不显示分数</p></div>'.format(MIN_QUESTIONS)
 
     return TEMPLATE.format(
         persona=esc(c["persona"]), tagline=esc(c.get("tagline", "")), signals=signals, formal=formal,
